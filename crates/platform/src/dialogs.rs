@@ -14,6 +14,7 @@ use std::{
     },
     thread::JoinHandle,
 };
+/// An already-created native picker future that a reserved worker can wait on.
 pub type DialogFuture<T> = Pin<Box<dyn Future<Output = Outcome<T>> + Send>>;
 
 /// Wait for a future without polling an idle native dialog.
@@ -76,6 +77,8 @@ impl<R, T> Clone for DialogClient<R, T> {
     }
 }
 impl<R, T> DialogClient<R, T> {
+    /// Queue a request without blocking and wake the host to pump it.
+    /// A busy or unavailable host answers with a worker failure; no second picker is opened.
     pub fn request(&self, request: R) -> Receiver<Outcome<T>> {
         let (answer, receive) = mpsc::channel();
         if self.busy.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
@@ -125,6 +128,7 @@ pub struct NativeDialogs<R, T> {
     check: Arc<dyn Fn() -> Result<(), DialogError> + Send + Sync>,
 }
 impl<R, T: Send + 'static> NativeDialogs<R, T> {
+    /// Create a client and its event-loop-owned service without a backend preflight check.
     pub fn new(wake: impl Fn() + Send + Sync + 'static) -> (DialogClient<R, T>, Self) {
         Self::with_preflight(wake, || Ok(()))
     }
@@ -140,9 +144,13 @@ impl<R, T: Send + 'static> NativeDialogs<R, T> {
         let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(wake);
         (DialogClient { sender, busy: busy.clone(), wake: wake.clone() }, Self { queue, busy, state: None, wake, check: Arc::new(check) })
     }
+    /// Whether a queued, preparing or live picker still owns the transport reservation.
     pub fn pending(&self) -> bool {
         self.busy.load(Ordering::SeqCst)
     }
+    /// Advance requests on the event-loop thread and publish completed replies.
+    /// Call before consuming replies and after enqueuing work. `create` must eagerly open
+    /// the native picker on this thread and return its already-created future.
     pub fn pump(&mut self, mut create: impl FnMut(R) -> DialogFuture<T>) {
         if let Some(state) = self.state.take() {
             match state {
@@ -216,6 +224,9 @@ pub struct DeferredClose {
 }
 #[cfg(feature = "egui")]
 impl DeferredClose {
+    /// Hold actual close requests while a picker or app continuation is pending.
+    /// Return `true` once after settlement so the host retries its unsaved-work policy;
+    /// this never grants permission to discard changes or closes the viewport itself.
     pub fn update(&mut self, ctx: &egui::Context, pending: bool) -> bool {
         let outgoing = ctx.viewport(|v| {
             v.commands

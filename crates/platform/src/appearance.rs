@@ -8,16 +8,19 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU8, Ordering},
 };
 
+/// Desktop color preference observed independently of the application palette.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Theme {
+    /// The desktop requests a dark appearance.
     Dark,
+    /// The desktop requests a light appearance.
     Light,
 }
 
 struct Shared {
     value: AtomicU8,
     active: AtomicBool,
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
     wake: Box<dyn Fn() + Send + Sync>,
 }
 impl Shared {
@@ -28,7 +31,7 @@ impl Shared {
             _ => None,
         }
     }
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
     fn publish(&self, theme: Option<Theme>) {
         let code = match theme {
             Some(Theme::Dark) => 1,
@@ -47,35 +50,43 @@ impl Shared {
 /// Cache reads never block the UI; callers should keep wake callbacks nonblocking.
 pub struct Watcher {
     shared: Arc<Shared>,
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
     stop: async_channel::Sender<()>,
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
     worker: Option<std::thread::JoinHandle<()>>,
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
     finished: std::sync::mpsc::Receiver<()>,
 }
 impl Watcher {
+    /// Start an active subscription, or return `None` on unsupported targets or worker failure.
+    /// `wake` runs on the worker and must not block.
     pub fn start(wake: impl Fn() + Send + Sync + 'static) -> Option<Self> {
         Self::start_active(true, wake)
     }
+    /// Start observing with explicit control over wake notifications.
+    /// An inactive subscription still updates its cache. Unsupported targets and worker
+    /// startup failure return `None`; browser targets never start a desktop watcher.
     pub fn start_active(active: bool, wake: impl Fn() + Send + Sync + 'static) -> Option<Self> {
-        #[cfg(all(unix, not(target_os = "macos")))]
+        #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
         {
             Self::spawn(active, wake, portal::watch)
         }
-        #[cfg(not(all(unix, not(target_os = "macos"))))]
+        #[cfg(not(all(unix, not(target_os = "macos"), not(target_arch = "wasm32"))))]
         {
             let _ = (active, wake);
             None
         }
     }
+    /// Read the cached preference without blocking; `None` means no known preference.
     pub fn current(&self) -> Option<Theme> {
         self.shared.get()
     }
+    /// Enable or suppress future change notifications without stopping observation.
+    /// Changing this flag does not itself wake the host or clear the cached preference.
     pub fn set_active(&self, active: bool) {
         self.shared.active.store(active, Ordering::Release);
     }
-    #[cfg(all(unix, not(target_os = "macos")))]
+    #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
     fn spawn<F: std::future::Future<Output = ()> + 'static>(
         active: bool,
         wake: impl Fn() + Send + Sync + 'static,
@@ -103,7 +114,7 @@ impl Watcher {
 impl Drop for Watcher {
     fn drop(&mut self) {
         self.set_active(false);
-        #[cfg(all(unix, not(target_os = "macos")))]
+        #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
         {
             self.stop.close();
             if let Some(worker) = self.worker.take() {
@@ -118,7 +129,7 @@ impl Drop for Watcher {
     }
 }
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
 mod portal {
     use super::*;
     use futures_lite::StreamExt;
@@ -418,8 +429,11 @@ mod portal {
         }
     }
 }
+/// Owned callback that supplies an observed theme and updates egui native-window hints.
 #[cfg(feature = "egui")]
 pub type SystemThemeFn = Box<dyn Fn(&egui::Context) -> Option<egui::Theme>>;
+/// Create an egui theme callback that owns the subscription and wakes its first context.
+/// Return `None` when no desktop watcher can start; the host retains its fallback policy.
 #[cfg(feature = "egui")]
 pub fn egui_service() -> Option<SystemThemeFn> {
     let context = Arc::new(std::sync::OnceLock::<egui::Context>::new());

@@ -2,8 +2,10 @@
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use web_sys::{Blob, BlobPropertyBag, HtmlAnchorElement, Url, Window};
 
+/// Object-URL lifetime for a requested download; the default is 60 seconds.
 #[derive(Clone, Copy, Debug)]
 pub struct DownloadOptions {
+    /// Positive delay in milliseconds before cleanup; nonpositive values reject the click.
     pub revoke_after_ms: i32,
 }
 impl Default for DownloadOptions {
@@ -20,12 +22,16 @@ pub struct PreparedDownload {
     url: Option<String>,
 }
 impl PreparedDownload {
+    /// Prepare an owned Blob and hidden link using the caller's bytes, MIME and filename.
+    /// No download is requested until [`Self::click`]; browser setup failures return an error.
     pub fn bytes(name: &str, mime: &str, bytes: &[u8]) -> Result<Self, JsValue> {
         let parts = js_sys::Array::of1(&js_sys::Uint8Array::from(bytes));
         let options = BlobPropertyBag::new();
         options.set_type(mime);
         Self::blob(name, &Blob::new_with_u8_array_sequence_and_options(&parts, &options)?)
     }
+    /// Prepare a hidden link and owned object URL for an existing Blob.
+    /// Blank filenames, missing browser DOM and setup failures return an error.
     pub fn blob(name: &str, blob: &Blob) -> Result<Self, JsValue> {
         if name.trim().is_empty() {
             return Err(JsValue::from_str("a file name is required"));
@@ -71,9 +77,13 @@ impl Drop for PreparedDownload {
         }
     }
 }
+/// Prepare bytes and request a download with the specified URL lifetime.
+/// Success means the click was issued, not that the browser accepted or saved the file.
 pub fn download_bytes(name: &str, mime: &str, bytes: &[u8], options: DownloadOptions) -> Result<(), JsValue> {
     PreparedDownload::bytes(name, mime, bytes)?.click(options)
 }
+/// Prepare a Blob and request a download with the specified URL lifetime.
+/// Setup or scheduling failures clean up owned resources and return an error.
 pub fn download_blob(name: &str, blob: &Blob, options: DownloadOptions) -> Result<(), JsValue> {
     PreparedDownload::blob(name, blob)?.click(options)
 }

@@ -131,9 +131,9 @@ impl Drop for Watcher {
 
 #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
 mod portal {
-    use super::*;
+    use super::{Shared, Theme};
     use futures_lite::StreamExt;
-    use std::time::Duration;
+    use std::{sync::Arc, time::Duration};
     use zbus::zvariant::{OwnedValue, Value};
     const DEST: &str = "org.freedesktop.portal.Desktop";
     const PATH: &str = "/org/freedesktop/portal/desktop";
@@ -322,7 +322,13 @@ mod portal {
             Ok(())
         }
 
-        use super::*;
+        use super::{GNOME, STANDARD, combined, decode, reply};
+        use crate::appearance::{Theme, Watcher};
+        use std::{
+            sync::{Arc, atomic::Ordering},
+            time::Duration,
+        };
+        use zbus::zvariant::Value;
         #[test]
         fn no_preference_is_an_answer_and_gnome_only_fills_missing_preference() {
             assert_eq!(combined(None, None), None);
@@ -518,7 +524,7 @@ impl egui::Plugin for NativeWindowTheme {
 
 #[cfg(all(test, feature = "egui", unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
 mod native_window_tests {
-    use super::*;
+    use super::{Theme, sync_native_window_theme};
     fn pass(ctx: &egui::Context, observed: Option<Theme>, preference: egui::ThemePreference) -> Vec<egui::SystemTheme> {
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
             sync_native_window_theme(ui.ctx(), observed);

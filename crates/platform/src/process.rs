@@ -36,7 +36,7 @@ pub(crate) async fn capture(program: &std::path::Path, args: &[&str], timeout: s
 }
 #[cfg(all(test, feature = "appearance", unix, not(target_os = "macos")))]
 mod tests {
-    use super::*;
+    use super::capture;
     #[test]
     fn capture_checks_exit_status_size_and_deadline() {
         use std::time::{Duration, Instant};

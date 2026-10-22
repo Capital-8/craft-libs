@@ -1,5 +1,8 @@
 //! Private-bus regression based on PdfCraft's queued-update test (storytold/pdfcraft#881).
-use super::*;
+use super::{DEST, GNOME, IFACE, KEY, PATH, STANDARD, watch_connection};
+use crate::appearance::{Theme, Watcher};
+use std::time::Duration;
+use zbus::zvariant::{OwnedValue, Value};
 
 #[test]
 #[ignore = "requires dbus-daemon; private session bus only"]

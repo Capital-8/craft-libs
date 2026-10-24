@@ -71,6 +71,7 @@ pub(crate) fn decode(data: &[u8], limit: usize) -> Option<Vec<u8>> {
         let Some(b) = read_byte() else {
             // Be lenient and accept what we have (see PDFBOX-5910).
             flush_group(&mut group, &mut decoded)?;
+            decoded.truncate(limit);
 
             return Some(decoded);
         };
@@ -91,6 +92,7 @@ pub(crate) fn decode(data: &[u8], limit: usize) -> Option<Vec<u8>> {
                 // Technically requires a '>', but there is a PDF where it isn't
                 // appended and decodes fine in other viewers.
                 flush_group(&mut group, &mut decoded)?;
+                decoded.truncate(limit);
 
                 return Some(decoded);
             }
@@ -107,5 +109,7 @@ mod tests {
     fn output_stops_at_the_limit() {
         assert_eq!(decode(&[b'z'; 100], 10).unwrap().len(), 10);
         assert_eq!(decode(b"zz~>", 100).unwrap(), [0; 8]);
+        assert_eq!(decode(b"!!!!~>", 2).unwrap().len(), 2);
+        assert_eq!(decode(b"!!!!", 2).unwrap().len(), 2);
     }
 }

@@ -4,7 +4,9 @@ use crate::reader::Reader;
 use crate::trivia::is_white_space_character;
 use alloc::vec::Vec;
 
-pub(crate) fn decode(data: &[u8]) -> Option<Vec<u8>> {
+/// PdfCraft patch: `limit` is the most bytes produced (see `filter::decode_limit`); each `z` costs
+/// one input byte and yields four, so a Flate stream of them would outgrow the budget.
+pub(crate) fn decode(data: &[u8], limit: usize) -> Option<Vec<u8>> {
     const POW_85: [u32; 5] = [52200625, 614125, 7225, 85, 1];
 
     let mut reader = Reader::new(data);
@@ -55,10 +57,17 @@ pub(crate) fn decode(data: &[u8]) -> Option<Vec<u8>> {
         Some(())
     };
 
-    let mut decoded = Vec::with_capacity(data.len() * 4 / 5);
+    let mut decoded = Vec::with_capacity((data.len() * 4 / 5).min(limit));
     let mut group = Vec::with_capacity(5);
 
     loop {
+        if decoded.len() >= limit {
+            decoded.truncate(limit);
+            warn!("ascii85 stream stopped at its decode limit of {limit} bytes");
+
+            return Some(decoded);
+        }
+
         let Some(b) = read_byte() else {
             // Be lenient and accept what we have (see PDFBOX-5910).
             flush_group(&mut group, &mut decoded)?;
@@ -87,5 +96,16 @@ pub(crate) fn decode(data: &[u8]) -> Option<Vec<u8>> {
             }
             _ => return None, // Invalid character.
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::decode;
+
+    #[test]
+    fn output_stops_at_the_limit() {
+        assert_eq!(decode(&[b'z'; 100], 10).unwrap().len(), 10);
+        assert_eq!(decode(b"zz~>", 100).unwrap(), [0; 8]);
     }
 }

@@ -1083,6 +1083,10 @@ mod tests {
         });
         assert_eq!(std::fs::read(&exe).unwrap(), signed_exe);
         assert_eq!(std::fs::read_to_string(folder.join("ArtCraftLauncherData").join("settings.json")).unwrap(), "{}");
+        // The update's zip carries `portable.txt`, so the replaced copy is detected as portable
+        // and keeps its data in the folder beside the executable.
+        assert_eq!(detect(&crate::suite::LAUNCHER, &exe), Some(Install::Portable(exe.clone())));
+        assert_eq!(Paths::for_exe(&crate::suite::LAUNCHER, &exe).unwrap().data, folder.join("ArtCraftLauncherData").join("data"));
         assert!(!folder.join("artcraft-launcher-0.2.0-windows-x64-portable").exists(), "the zip's folder must not be nested in the launcher's");
         assert!(!zip.exists() && !tmp.exists(), "the download and the staging folder are removed");
     }

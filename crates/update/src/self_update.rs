@@ -1665,10 +1665,11 @@ mod tests {
 
     #[test]
     fn a_development_build_does_not_update_itself() {
-        // `cargo test` runs from a Cargo build tree, wherever `CARGO_TARGET_DIR` put it. This
-        // needs a normal Cargo target tree; the opt-in is passed explicitly so the result
-        // doesn't depend on `CRAFT_UPDATE_DEV`.
-        let exe = std::env::current_exe().unwrap().canonicalize().unwrap();
+        // An archived test runner may relocate its executable without Cargo's metadata.
+        // Supply a complete cache-disabled build tree so this checks the updater guard,
+        // independent of the runner's location and the ambient `CRAFT_UPDATE_DEV` value.
+        let dir = tempfile::tempdir().unwrap();
+        let exe = cargo_build_tree_without_rustc_info(dir.path(), "debug", "debug/deps/artcraft-launcher");
         assert!(is_development_build(&exe, false), "{} should be inside a Cargo target directory", exe.display());
         assert_eq!(current_at(&crate::suite::LAUNCHER, &exe, false), None);
     }

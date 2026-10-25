@@ -896,6 +896,49 @@ mod tests {
         assert!(!zip.exists() && !tmp.exists(), "the download and the staging folder are removed");
     }
 
+    /// A launcher without `portable.txt` is a standalone installation, and the helper still
+    /// replaces its own executable after it exits.
+    #[cfg(windows)]
+    #[test]
+    fn a_standalone_update_replaces_the_launcher_after_it_exits() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("ArtCraft Launcher");
+        std::fs::create_dir_all(folder.join("ArtCraftLauncherData")).unwrap();
+        let exe = folder.join("artcraft-launcher.exe");
+        std::fs::write(&exe, "0.1.0").unwrap();
+        std::fs::write(folder.join("ArtCraftLauncherData").join("settings.json"), "{}").unwrap();
+        let zip = dir.path().join("artcraft-launcher-0.2.0-windows-x64-portable.zip");
+        let mut writer = zip::ZipWriter::new(std::fs::File::create(&zip).unwrap());
+        let signed_exe = std::fs::read(system_program("cmd.exe")).unwrap();
+        for (name, body) in [
+            ("artcraft-launcher-0.2.0-windows-x64-portable/artcraft-launcher.exe", signed_exe.as_slice()),
+            ("artcraft-launcher-0.2.0-windows-x64-portable/portable.txt", b"".as_slice()),
+        ] {
+            writer.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+            writer.write_all(body).unwrap();
+        }
+        writer.finish().unwrap();
+        let tmp = dir.path().join("cache").join(PORTABLE_STAGING);
+        let step = Finish::Portable { zip: zip.clone(), tmp: tmp.clone() };
+
+        let mut old = std::process::Command::new("ping").args(["-n", "3", "127.0.0.1"]).stdout(std::process::Stdio::null()).spawn().unwrap();
+        let helper = {
+            let (exe, step, pid) = (exe.clone(), step.clone(), old.id());
+            std::thread::spawn(move || {
+                run_step(&crate::suite::LAUNCHER, &system_program("cmd.exe"), pid, &exe, &step, std::time::Duration::from_secs(30))
+            })
+        };
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "0.1.0", "replaced while the old launcher was still running");
+        old.wait().unwrap();
+        helper.join().unwrap().unwrap();
+        assert_eq!(std::fs::read(&exe).unwrap(), signed_exe);
+        assert_eq!(std::fs::read_to_string(folder.join("ArtCraftLauncherData").join("settings.json")).unwrap(), "{}");
+        assert!(!folder.join("artcraft-launcher-0.2.0-windows-x64-portable").exists(), "the zip's folder must not be nested in the launcher's");
+        assert!(!zip.exists() && !tmp.exists(), "the download and the staging folder are removed");
+    }
+
     /// The helper finishes only the launcher's own update: its own installation, with the
     /// download from its own cache. A signed launcher must not run or start anything else.
     #[cfg(windows)]
@@ -919,6 +962,10 @@ mod tests {
         std::fs::write(&elsewhere, "zip").unwrap();
         let other = dir.path().join("other.exe");
         std::fs::write(&other, "other").unwrap();
+        let other_in_folder = folder.join("other.exe");
+        std::fs::write(&other_in_folder, "other").unwrap();
+        let other_app = folder.join(format!("{}.exe", crate::suite::PHOTOCRAFT.id));
+        std::fs::write(&other_app, "another Craft app").unwrap();
         let staging = cache.join(PORTABLE_STAGING);
         let portable = |zip: &Path, tmp: &Path| Finish::Portable { zip: zip.to_path_buf(), tmp: tmp.to_path_buf() };
 
@@ -927,6 +974,10 @@ mod tests {
         assert!(check_helper(&crate::suite::LAUNCHER, &other, &paths, &exe, &portable(&zip, &staging)).is_err());
         // Not the launcher's installation.
         assert!(check_helper(&crate::suite::LAUNCHER, &me, &paths, &other, &portable(&zip, &staging)).is_err());
+        // A portable marker doesn't make a foreign executable the launcher.
+        assert!(check_helper(&crate::suite::LAUNCHER, &me, &paths, &other_in_folder, &portable(&zip, &staging)).is_err());
+        // Another Craft App's executable is not the launcher, even in the same folder.
+        assert!(check_helper(&crate::suite::LAUNCHER, &me, &paths, &other_app, &portable(&zip, &staging)).is_err());
         // A download from outside the cache.
         assert!(check_helper(&crate::suite::LAUNCHER, &me, &paths, &exe, &portable(&elsewhere, &staging)).is_err());
         // Unpacking anywhere but the cache's staging folder.
@@ -937,6 +988,8 @@ mod tests {
         // Without portable.txt it is a standalone executable, which updates from the same zip.
         std::fs::remove_file(folder.join("portable.txt")).unwrap();
         assert_eq!(check_helper(&crate::suite::LAUNCHER, &me, &paths, &exe, &portable(&zip, &staging)), Ok(()));
+        // A foreign executable is not a standalone launcher either.
+        assert!(check_helper(&crate::suite::LAUNCHER, &me, &paths, &other_in_folder, &portable(&zip, &staging)).is_err());
         // An MSI is for an MSI installation only.
         assert!(check_helper(&crate::suite::LAUNCHER, &me, &paths, &exe, &Finish::Msi(zip.clone())).is_err());
     }

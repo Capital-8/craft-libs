@@ -144,6 +144,9 @@ fn failed_discovery_cannot_reuse_a_previously_available_queue() {
 }
 
 #[test]
+/// Only one print job can be active: a second `begin` fails, the receiver stays
+/// with the job, and submission, queue refusal and a dropped worker report
+/// `Submitted`, `Failed` and `WorkerStopped` while returning to ready.
 fn active_jobs_keep_their_receiver_and_report_receipt_refusal_or_worker_failure() {
     let ctx = egui::Context::default();
     let mut state = State::default();
@@ -175,6 +178,8 @@ fn active_jobs_keep_their_receiver_and_report_receipt_refusal_or_worker_failure(
 }
 
 #[test]
+/// Discovery and rendering localized controls populate the settings (printer, copies, duplex,
+/// grayscale) and become ready, without starting or submitting a print job.
 fn discovery_and_controls_do_not_submit_a_job() {
     let mut state = State::default();
     let discover: Discover = Box::new(|| {
@@ -206,6 +211,8 @@ fn discovery_and_controls_do_not_submit_a_job() {
 }
 
 #[test]
+/// At 220×360 with long localized labels, the grayscale checkbox stays inside the pane and works;
+/// starting a job disables it, and clicking it while pending changes nothing.
 fn localized_controls_fit_narrow_ui_and_disable_while_submitting() {
     let ctx = egui::Context::default();
     ctx.enable_accesskit();

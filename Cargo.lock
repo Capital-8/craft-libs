@@ -2543,6 +2543,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "craft-ssip"
+version = "0.1.0"
+
+[[package]]
 name = "craft-stencilcraft-format"
 version = "0.1.0"
 dependencies = [
